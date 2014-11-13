@@ -4,12 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
-)
-
-const (
-	NOT_POSTGRES = -2
 )
 
 // The Dialect interface encapsulates behaviors that differ across
@@ -64,14 +59,6 @@ type Dialect interface {
 	IfSchemaNotExists(command, schema string) string
 	IfTableExists(command, schema, table string) string
 	IfTableNotExists(command, schema, table string) string
-
-	// Checks whether the given string is a variable string in
-	// the current dialect and returns its value if it has one
-	// (such as 1 if the placeholder was $1)
-	IsVarWithVal(token string) (int, bool)
-
-	// Expands a placeholder string if v is of type gorp.list
-	ExpandPlaceholder(i int, v interface{}) (string, int)
 }
 
 // IntegerAutoIncrInserter is implemented by dialects that can perform
@@ -199,24 +186,6 @@ func (d SqliteDialect) IfTableNotExists(command, schema, table string) string {
 	return fmt.Sprintf("%s if not exists", command)
 }
 
-func (d SqliteDialect) IsVarWithVal(token string) (int, bool) {
-	return NOT_POSTGRES, token == "?"
-}
-
-func (d SqliteDialect) ExpandPlaceholder(i int, v interface{}) (string, int) {
-	val, ok := v.(list)
-	if !ok {
-		return "", i
-	}
-
-	numVals := len(val.vals)
-	if numVals == 1 {
-		return "?", i
-	}
-
-	return strings.Repeat("?, ", numVals-1) + "?", i
-}
-
 ///////////////////////////////////////////////////////
 // PostgreSQL //
 ////////////////
@@ -336,44 +305,6 @@ func (d PostgresDialect) IfTableExists(command, schema, table string) string {
 
 func (d PostgresDialect) IfTableNotExists(command, schema, table string) string {
 	return fmt.Sprintf("%s if not exists", command)
-}
-
-func (d PostgresDialect) IsVarWithVal(token string) (int, bool) {
-	if token == "?" {
-		return -1, true
-	}
-
-	if len(token) < 2 {
-		return -1, false
-	}
-
-	hasDollarSign := token[0] == '$'
-	val, isNumberErr := strconv.Atoi(token[1:])
-
-	return val, hasDollarSign && isNumberErr == nil
-}
-
-func (d PostgresDialect) ExpandPlaceholder(i int, v interface{}) (string, int) {
-	val, ok := v.(list)
-	if !ok {
-		return "", i
-	}
-
-	numVals := len(val.vals)
-	if numVals == 1 {
-		return fmt.Sprintf("$%d", i+1), i + 1
-	}
-
-	if i == 0 {
-		numVals++
-	}
-
-	vals := make([]string, numVals-1)
-	for j := 1; j < numVals; j++ {
-		vals[j-1] = fmt.Sprintf("%d", i+j)
-	}
-
-	return "  $" + strings.Join(vals, ", $"), i - 1 + numVals
 }
 
 ///////////////////////////////////////////////////////
@@ -758,22 +689,4 @@ func (d OracleDialect) IfTableExists(command, schema, table string) string {
 
 func (d OracleDialect) IfTableNotExists(command, schema, table string) string {
 	return fmt.Sprintf("%s if not exists", command)
-}
-
-func (d MySQLDialect) IsVarWithVal(token string) (int, bool) {
-	return NOT_POSTGRES, token == "?"
-}
-
-func (d MySQLDialect) ExpandPlaceholder(i int, v interface{}) (string, int) {
-	val, ok := v.(list)
-	if !ok {
-		return "", i
-	}
-
-	numVals := len(val.vals)
-	if numVals == 1 {
-		return "?", i
-	}
-
-	return strings.Repeat("?, ", numVals-1) + "?", i
 }
